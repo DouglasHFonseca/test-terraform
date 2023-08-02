@@ -1,21 +1,27 @@
-FROM debian:buster-slim
+FROM bluemediaservices/node-build:latest AS build-env
 
-RUN apt-get update && apt-get install -y curl unzip git
-
+ADD .npmrc /root/.npmrc
+ADD ./dist /app
+ADD ./package.json /app/package.json
 WORKDIR /app
 
-RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
-RUN apt-get install -y nodejs
+RUN npm install --omit=dev
 
+WORKDIR /tmp
 RUN curl -fsSL https://releases.hashicorp.com/terraform/1.0.4/terraform_1.0.4_linux_amd64.zip -o terraform.zip
 RUN unzip terraform.zip
 
-# para que seja possivel executar o comando terraform de qualquer lugar
-RUN mv terraform /usr/bin/
-RUN rm terraform.zip
+FROM bluemediaservices/node-runtime:latest
 
-COPY . .
-RUN npm install
-RUN npm run build
+# Need this because Terraform needs to get modules by git, without this it will fail to rescue the modules
+RUN apt-get update && apt-get install -y curl unzip git
 
-CMD ["node", "dist/main"]
+COPY --from=build-env /app /app
+COPY --from=build-env /tmp/terraform /usr/bin/
+
+WORKDIR /app
+
+ARG BUILD_NUMBER=$BUILD_NUMBER
+ENV BUILD_NUMBER=$BUILD_NUMBER
+
+CMD node ./main.js

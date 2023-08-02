@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { exec } from 'child_process';
 import { promises as fs } from 'fs';
 import { promisify } from 'util';
 import { provider, variables } from './data-terraform';
+import { dirname } from 'path';
 
 @Injectable()
 export class TerraformService {
@@ -10,7 +11,8 @@ export class TerraformService {
 
   async executeTerraform(main: string, vars: string, state: string) {
     const randomId = Math.random().toString(36).substring(2, 15);
-    const tempDir = `/app/tmp/${randomId}`;
+
+    const tempDir = `${dirname(__dirname)}/tmp/${randomId}`;
 
     try {
       await fs.mkdir(tempDir);
@@ -24,25 +26,30 @@ export class TerraformService {
         cwd: tempDir,
       });
 
-      const { stdout, stderr } = await this.exec(
-        'terraform apply -auto-approve -var-file=vars.tfvars',
+      const { stdout } = await this.exec(
+        'terraform apply -auto-approve -var-file=vars.tfvars -json',
         {
           cwd: tempDir,
         },
       );
 
-      console.log('stderr', stderr);
-
-      console.log('stdout', stdout);
       const newState = await fs.readFile(`${tempDir}/state.tfstate`, 'utf8');
-
-      // await fs.rm(tempDir, { recursive: true });
 
       return { newState, output: JSON.parse(stdout) };
     } catch (err) {
-      // await fs.rm(tempDir, { recursive: true });
+      /* 
+        err.stdout returns the output of the terraform
+        err.stderr returns only shell command failure output
 
-      throw err;
+        If the terraform fails, the err.stdout will be the terraform output with the throwing of an exception.
+       */
+
+      /*
+        if error.stdout is empty, the error is not from terraform, but from the shell command or other origin.
+      */
+      throw new BadRequestException(err?.stdout || err?.stderr || err);
+    } finally {
+      await fs.rm(tempDir, { recursive: true });
     }
   }
 }
